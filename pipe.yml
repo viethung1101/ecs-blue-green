@@ -1567,13 +1567,13 @@ Resources:
   #
   #
 
-      LogGroup:
-        Type: 'AWS::Logs::LogGroup'
-        Properties:
-          LogGroupName: /ecs/nginx-sample
-          RetentionInDays: 731
-        UpdateReplacePolicy: Delete
-        DeletionPolicy: Delete
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /ecs/nginx-sample
+      RetentionInDays: 731
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
 
   ECSBlueGreenFullPipeline:
     Type: 'AWS::CodePipeline::Pipeline'
