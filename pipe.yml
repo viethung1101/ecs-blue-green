@@ -1,0 +1,1977 @@
+
+Description: Builds the blue/green deployment pipeline stack
+Parameters:
+  codeRepoDesc:
+    Type: String
+    Default: Source code for the ECS blue/green demo
+    Description: CodeCommit repository for the ECS blue/green demo
+  deploymentConfigName:
+    Type: String
+    Default: CodeDeployDefault.ECSLinear10PercentEvery1Minutes
+    AllowedValues:
+      - CodeDeployDefault.ECSLinear10PercentEvery1Minutes
+      - CodeDeployDefault.ECSLinear10PercentEvery3Minutes
+      - CodeDeployDefault.ECSCanary10Percent5Minutes
+      - CodeDeployDefault.ECSCanary10Percent15Minutes
+      - CodeDeployDefault.ECSAllAtOnce
+    Description: >-
+      Shifts x percentage of traffic every x minutes until all traffic is
+      shifted
+  taskSetTerminationTimeInMinutes:
+    Type: Number
+    Default: '10'
+    Description: TaskSet termination time in minutes
+
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: BlueGreenPipelineStack/EcsBlueGreenCluster/VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/Resource
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.0.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: true
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Public
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Public
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/Subnet
+  PublicSubnet1RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/RouteTable
+  PublicSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicSubnet1RouteTable
+      SubnetId: !Ref PublicSubnet1
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/RouteTableAssociation
+  PublicSubnet1DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCIGW
+    DependsOn:
+      - VPCGWD
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/DefaultRoute
+  PublicSubnet1EIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/EIP
+  PublicSubnet1NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !GetAtt
+        - PublicSubnet1EIP
+        - AllocationId
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/NATGateway
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.64.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      MapPublicIpOnLaunch: true
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Public
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Public
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/Subnet
+  PublicSubnet2RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/RouteTable
+  PublicSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicSubnet2RouteTable
+      SubnetId: !Ref PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/RouteTableAssociation
+  PublicSubnet2DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCIGW
+    DependsOn:
+      - VPCGWD
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/DefaultRoute
+  PublicSubnet2EIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/EIP
+  PublicSubnet2NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      AllocationId: !GetAtt
+        - PublicSubnet2EIP
+        - AllocationId
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/NATGateway
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.128.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Private
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Private
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/Subnet
+  PrivateSubnet1RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/RouteTable
+  PrivateSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1RouteTable
+      SubnetId: !Ref PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/RouteTableAssociation
+  PrivateSubnet1DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet1NATGateway
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/DefaultRoute
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.192.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Private
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Private
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/Subnet
+  PrivateSubnet2RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/RouteTable
+  PrivateSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2RouteTable
+      SubnetId: !Ref PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/RouteTableAssociation
+  PrivateSubnet2DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet2NATGateway
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/DefaultRoute
+  VPCIGW:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/IGW
+  VPCGWD:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref VPCIGW
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/VPCGW
+  ecsCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsCluster/Resource
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    # Metadata:
+    #   aws:cdk:path: BlueGreenContainerImageStack/EcsBlueGreenRoles/ecsTaskRoleForWorkshop/Resource
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+        Version: "2012-10-17"
+    # Metadata:
+    #   aws:cdk:path: BlueGreenContainerImageStack/EcsBlueGreenRoles/codeBuildServiceRole/Resource
+  CodeBuildServiceRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+              - ecr:PutImage
+              - s3:Get*
+              - s3:List*
+              - s3:PutObject
+              - secretsmanager:GetSecretValue
+            Effect: Allow
+            Resource: "*"
+          - Action: codecommit:GitPull
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - CodeCommitRepo
+                - Arn
+          - Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+              - Fn::Join:
+                  - ""
+                  - - "arn:"
+                    - Ref: AWS::Partition
+                    - ":logs:"
+                    - Ref: AWS::Region
+                    - ":"
+                    - Ref: AWS::AccountId
+                    - :log-group:/aws/codebuild/
+                    - Ref: CodeBuildProject
+              - Fn::Join:
+                  - ""
+                  - - "arn:"
+                    - Ref: AWS::Partition
+                    - ":logs:"
+                    - Ref: AWS::Region
+                    - ":"
+                    - Ref: AWS::AccountId
+                    - :log-group:/aws/codebuild/
+                    - Ref: CodeBuildProject
+                    - :*
+          - Action:
+              - codebuild:CreateReportGroup
+              - codebuild:CreateReport
+              - codebuild:UpdateReport
+              - codebuild:BatchPutTestCases
+              - codebuild:BatchPutCodeCoverages
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:"
+                  - Ref: AWS::Partition
+                  - ":codebuild:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :report-group/
+                  - Ref: CodeBuildProject
+                  - -*
+        Version: "2012-10-17"
+      PolicyName: CodeBuildServiceRolePolicy
+      Roles:
+        - Ref: CodeBuildServiceRole
+    # Metadata:
+    #   aws:cdk:path: BlueGreenContainerImageStack/EcsBlueGreenRoles/codeBuildServiceRole/DefaultPolicy/Resource
+  ECRrepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration:
+        ScanOnPush: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    # Metadata:
+    #   aws:cdk:path: BlueGreenContainerImageStack/EcsBlueGreenBuildImage/ecrRepo/Resource
+  CodeCommitRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: nginx-sample
+      RepositoryDescription:
+        Ref: codeRepoDesc
+    # Metadata:
+    #   aws:cdk:path: BlueGreenContainerImageStack/EcsBlueGreenBuildImage/codeRepo/Resource
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Type: PLAINTEXT
+            Value:
+              Fn::Join:
+                - ""
+                - - Fn::Select:
+                      - 4
+                      - Fn::Split:
+                          - ":"
+                          - Fn::GetAtt:
+                              - ECRrepo
+                              - Arn
+                  - .dkr.ecr.
+                  - Fn::Select:
+                      - 3
+                      - Fn::Split:
+                          - ":"
+                          - Fn::GetAtt:
+                              - ECRrepo
+                              - Arn
+                  - "."
+                  - Ref: AWS::URLSuffix
+                  - /
+                  - Ref: ECRrepo
+          - Name: TASK_EXECUTION_ARN
+            Type: PLAINTEXT
+            Value:
+              Fn::GetAtt:
+                - TaskExecutionRole
+                - Arn
+        Image: aws/codebuild/standard:5.0
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      ServiceRole:
+        Fn::GetAtt:
+          - CodeBuildServiceRole
+          - Arn
+      Source:
+        Location:
+          Fn::GetAtt:
+            - CodeCommitRepo
+            - CloneUrlHttp
+        Type: CODECOMMIT
+      Description: Code build project for the application
+      EncryptionKey: alias/aws/s3
+      SourceVersion: main
+
+  ECSserviceTaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      ContainerDefinitions:
+        - Essential: true
+          # Image: !Join
+          #   - ''
+          #   - - !Ref 'AWS::AccountId'
+          #     - .dkr.ecr.
+          #     - !Ref 'AWS::Region'
+          #     - .
+          #     - !Ref 'AWS::URLSuffix'
+          #     - >-
+          #       /bluegreencontainerimagestack-ecsbluegreenbuildimageecrrepo49cbe659-u1veqblhaaiv:latest
+          Image: 'nginxdemos/hello:latest'
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: app
+              awslogs-region: !Ref 'AWS::Region'
+          Name: ProxyContainer
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+      Cpu: '256'
+      ExecutionRoleArn: >-
+        arn:aws:iam::275686840643:role/ecsTaskExecutionRole
+      Family: nginx-sample
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: >-
+        arn:aws:iam::275686840643:role/ecsTaskExecutionRole
+
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /ecs/nginx-sample
+      RetentionInDays: 731
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+
+  ApplicationLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: 'false'
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt
+          - ApplicationLoadBalancerSG
+          - GroupId
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Type: application
+    DependsOn:
+      - PublicSubnet1DefaultRoute
+      - PublicSubnet2DefaultRoute
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/Resource
+  ApplicationLoadBalancerSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: >-
+        Automatically created Security Group for ELB
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealb8F91BEF4
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow from anyone on port 80
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          Description: Allow from anyone on port 8080
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/Resource
+  ApplicationLoadBalancerSGEgressPort80:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      IpProtocol: tcp
+      Description: >-
+        to
+        BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:80
+      DestinationSecurityGroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      FromPort: 80
+      ToPort: 80
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/to
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:80
+  ApplicationLoadBalancerSGEgressPort8080:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      IpProtocol: tcp
+      Description: >-
+        to
+        BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:8080
+      DestinationSecurityGroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      FromPort: 8080
+      ToPort: 8080
+    # Metadata:
+      # 'aws:cdk:path': >-
+      #   BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/to
+      #   BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:8080
+  ApplicationLoadBalancerProdListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref BlueTaskTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/albProdListener/Resource
+  ApplicationLoadBalancerTestListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref GreenTaskTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 8080
+      Protocol: HTTP
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/albTestListener/Resource
+  BlueTaskTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 30
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/blueGroup/Resource
+  GreenTaskTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 30
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/greenGroup/Resource
+  ecsCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+  ECSService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !Ref ecsCluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      DeploymentController:
+        Type: CODE_DEPLOY
+      DesiredCount: 3
+      EnableECSManagedTags: false
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: ProxyContainer
+          ContainerPort: 80
+          TargetGroupArn: !Ref BlueTaskTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !GetAtt
+              - ECSServiceSecurityGroup
+              - GroupId
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+      ServiceName: nginx-sample
+      TaskDefinition: !Ref ECSserviceTaskDefinition
+    DependsOn:
+      - ApplicationLoadBalancerProdListener
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/Service
+  ECSServiceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: >-
+        BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/Resource
+  ECSServiceSecurityGroupAllowTrafficFromALB:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      Description: >-
+        from
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:80
+      FromPort: 80
+      GroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      SourceSecurityGroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      ToPort: 80
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/from
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:80
+  ECSServiceSecurityGroupAllowTrafficFromALBport8080:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      Description: >-
+        from
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:8080
+      FromPort: 8080
+      GroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      SourceSecurityGroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      ToPort: 8080
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/from
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:8080
+  UnhealthyHostAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      AlarmDescription: CloudWatch Alarm for the UnhealthyHost errors of blue target group
+      AlarmName: nginx-sampleblueUnhealthyHostAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - BlueTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: UnHealthyHostCount
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Average
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-sampleblueUnhealthyHostAlarm/Resource
+  Blue5xxAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      AlarmDescription: CloudWatch Alarm for the 5xx errors of blue target group
+      AlarmName: nginx-sampleblue5xxAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - BlueTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: HTTPCode_Target_5XX_Count
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-sampleblue5xxAlarm/Resource
+  GreenUnhealthyHostAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      AlarmDescription: CloudWatch Alarm for the UnhealthyHost errors of green target group
+      AlarmName: nginx-samplegreenUnhealthyHostAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - GreenTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: UnHealthyHostCount
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Average
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-samplegreenUnhealthyHostAlarm/Resource
+  Green5xxAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      AlarmDescription: CloudWatch Alarm for the 5xx errors of green target group
+      AlarmName: nginx-samplegreen5xxAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - GreenTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: HTTPCode_Target_5XX_Count
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+  ECSApplication:
+    Type: 'AWS::CodeDeploy::Application'
+    Properties:
+      ComputePlatform: ECS
+
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsCluster/Resource
+  EventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        resources:
+          - !Join
+            - ''
+            - - 'arn:'
+              - !Ref 'AWS::Partition'
+              - ':codecommit:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':nginx-sample'
+        detail-type:
+          - CodeCommit Repository State Change
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceName:
+            - main
+      State: ENABLED
+      Targets:
+        - Arn: !Join
+            - ''
+            - - 'arn:'
+              - !Ref 'AWS::Partition'
+              - ':codepipeline:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':'
+              - !Ref ECSBlueGreenFullPipeline
+          Id: Target0
+          RoleArn: !GetAtt
+            - ECSBlueGreenEventsRole
+            - Arn
+
+  ECSTaskRolePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:GetDownloadUrlForLayer'
+              - 'ecr:BatchGetImage'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':ecr:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - >-
+                  :repository/*
+          - Action: 'ecr:GetAuthorizationToken'
+            Effect: Allow
+            Resource: '*'
+          - Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Effect: Allow
+            Resource: !GetAtt
+              - LogGroup
+              - Arn
+        Version: 2012-10-17
+      PolicyName: ECSTaskRolePolicy
+      Roles:
+        - ecsTaskExecutionRole
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsTaskRole/Policy/Resource
+  CodePipelineRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+        Version: 2012-10-17
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/codePipelineRole/Resource
+  codePipelineRoleDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'iam:PassRole'
+              - 'sts:AssumeRole'
+              - 'codecommit:Get*'
+              - 'codecommit:List*'
+              - 'codecommit:GitPull'
+              - 'codecommit:UploadArchive'
+              - 'codecommit:CancelUploadArchive'
+              - 'codebuild:BatchGetBuilds'
+              - 'codebuild:StartBuild'
+              - 'codedeploy:CreateDeployment'
+              - 'codedeploy:Get*'
+              - 'codedeploy:RegisterApplicationRevision'
+              - 's3:Get*'
+              - 's3:List*'
+              - 's3:PutObject'
+            Effect: Allow
+            Resource: '*'
+          - Action:
+              - 's3:GetObject*'
+              - 's3:GetBucket*'
+              - 's3:List*'
+              - 's3:DeleteObject*'
+              - 's3:PutObject*'
+              - 's3:Abort*'
+            Effect: Allow
+            Resource:
+              - !GetAtt
+                - ArtifactsBucket
+                - Arn
+              - !Join
+                - ''
+                - - !GetAtt
+                    - ArtifactsBucket
+                    - Arn
+                  - /*
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Resource: !GetAtt
+              - >-
+                ECSBlueGreenSourceCodePipelineActionRole
+              - Arn
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Resource: !GetAtt
+              - >-
+                ECSBlueGreenBuildCodePipelineActionRole
+              - Arn
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Resource: !GetAtt
+              - >-
+                ECSBlueGreenDeployCodePipelineActionRole
+              - Arn
+        Version: 2012-10-17
+      PolicyName: codePipelineRoleDefaultPolicy
+      Roles:
+        - !Ref CodePipelineRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/codePipelineRole/DefaultPolicy/Resource
+  ArtifactsBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/artifactsBucket/Resource
+  ArtifactsBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Statement:
+          - Action: 's3:PutObject'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'aws:kms'
+            Effect: Deny
+            Principal:
+              AWS: '*'
+            Resource: !Join
+              - ''
+              - - !GetAtt
+                  - ArtifactsBucket
+                  - Arn
+                - /*
+          - Action: 's3:*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+            Effect: Deny
+            Principal:
+              AWS: '*'
+            Resource: !Join
+              - ''
+              - - !GetAtt
+                  - ArtifactsBucket
+                  - Arn
+                - /*
+        Version: 2012-10-17
+
+  ECSApplicationCodeDeployServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: !Join
+                - ''
+                - - codedeploy.
+                  - !Ref 'AWS::Region'
+                  - .
+                  - !Ref 'AWS::URLSuffix'
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - !Join
+          - ''
+          - - 'arn:'
+            - !Ref 'AWS::Partition'
+            - ':iam::aws:policy/AWSCodeDeployRoleForECS'
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/ecsCodeDeployServiceRole/Resource
+
+  ECSApplicationcodeDeployCustomLambdaRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - !Join
+          - ''
+          - - 'arn:'
+            - !Ref 'AWS::Partition'
+            - ':iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/codeDeployCustomLambda/Resource
+  ECSApplicationcodeDeployCustomLambdaDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'iam:PassRole'
+              - 'sts:AssumeRole'
+              - 'codedeploy:List*'
+              - 'codedeploy:Get*'
+              - 'codedeploy:UpdateDeploymentGroup'
+              - 'codedeploy:CreateDeploymentGroup'
+              - 'codedeploy:DeleteDeploymentGroup'
+            Effect: Allow
+            Resource: '*'
+        Version: 2012-10-17
+      PolicyName: >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      Roles:
+        - !Ref ECSApplicationcodeDeployCustomLambdaRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/codeDeployCustomLambda/DefaultPolicy/Resource
+
+  ECSApplicationcreateDeploymentGroupLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import urllib.request
+          import uuid
+
+          import boto3
+
+          SUCCESS = "SUCCESS"
+          FAILED = "FAILED"
+
+          # Configure logging
+          LOGGER = logging.getLogger(__name__)
+          LOGGER.setLevel(logging.DEBUG)
+
+          client = boto3.client('codedeploy')
+
+
+          class DeploymentGroupConfig:
+              """
+              Accepts deployment group parameters for populating the object to create the CodeDeploy configuration
+              """
+
+              def __init__(
+                      self,
+                      application_name,
+                      deployment_group_name,
+                      deployment_config_name,
+                      service_role_arn,
+                      blue_target_group,
+                      green_target_group,
+                      prod_listener_arn,
+                      test_listener_arn,
+                      cluster_name,
+                      service_name,
+                      termination_wait_time,
+                      target_group_alarms
+              ):
+                  """
+                  DeploymentGroupConfig accepts parameters for the CodeDeploy deployment group custom resource
+                  :param application_name: CodeDeploy application name
+                  :param deployment_group_name: CodeDeploy deployment group name
+                  :param deployment_config_name: CodeDeploy configuration name
+                  :param service_role_arn: CodeDeploy service role arn
+                  :param blue_target_group: Blue deployment target group arn
+                  :param green_target_group: Green deployment target group arn
+                  :param prod_listener_arn: Production listener arn
+                  :param test_listener_arn: Test listener arn
+                  :param cluster_name: ECS cluster name
+                  :param service_name: ECS service name
+                  :param termination_wait_time: ECS task set termination wait time
+                  :param target_group_alarms: Target group CloudWatch alarms
+                  """
+                  self.application_name = application_name
+                  self.deployment_group_name = deployment_group_name
+                  self.deployment_config_name = deployment_config_name
+                  self.service_role_arn = service_role_arn
+                  self.blue_target_group = blue_target_group
+                  self.green_target_group = green_target_group
+                  self.prod_listener_arn = prod_listener_arn
+                  self.test_listener_arn = test_listener_arn
+                  self.cluster_name = cluster_name
+                  self.service_name = service_name
+                  self.termination_wait_time = termination_wait_time
+                  self.target_group_alarms = target_group_alarms
+
+
+          def extract_params(event):
+              return DeploymentGroupConfig(
+                  application_name=event['ResourceProperties']['ApplicationName'],
+                  deployment_group_name=event['ResourceProperties']['DeploymentGroupName'],
+                  deployment_config_name=event['ResourceProperties']['DeploymentConfigName'],
+                  service_role_arn=event['ResourceProperties']['ServiceRoleArn'],
+                  blue_target_group=event['ResourceProperties']['BlueTargetGroup'],
+                  green_target_group=event['ResourceProperties']['GreenTargetGroup'],
+                  prod_listener_arn=event['ResourceProperties']['ProdListenerArn'],
+                  test_listener_arn=event['ResourceProperties']['TestListenerArn'],
+                  cluster_name=event['ResourceProperties']['EcsClusterName'],
+                  service_name=event['ResourceProperties']['EcsServiceName'],
+                  termination_wait_time=event['ResourceProperties']['TerminationWaitTime'],
+                  target_group_alarms=event['ResourceProperties']['TargetGroupAlarms']
+              )
+
+
+          # Lambda Handler
+          def handler(event, context):
+              LOGGER.info("Received event: " + json.dumps(event, indent=2))
+
+              request_type = event['RequestType']
+
+              if request_type == 'Create':
+                  create_deployment_group(event, context)
+              elif request_type == 'Update':
+                  update_deployment_group(event, context)
+              elif request_type == 'Delete':
+                  delete_deployment_group(event, context)
+
+
+          def create_deployment_group(event, context):
+              data = {}
+              status = FAILED
+              config = extract_params(event)
+              try:
+                  client.create_deployment_group(
+                      applicationName=config.application_name,
+                      deploymentGroupName=config.deployment_group_name,
+                      deploymentConfigName=config.deployment_config_name,
+                      serviceRoleArn=config.service_role_arn,
+                      deploymentStyle={
+                          'deploymentType': 'BLUE_GREEN',
+                          'deploymentOption': 'WITH_TRAFFIC_CONTROL'
+                      },
+                      blueGreenDeploymentConfiguration={
+                          'terminateBlueInstancesOnDeploymentSuccess': {
+                              'action': 'TERMINATE',
+                              'terminationWaitTimeInMinutes': int(config.termination_wait_time)
+                          },
+                          'deploymentReadyOption': {
+                              'actionOnTimeout': 'CONTINUE_DEPLOYMENT'
+                          }
+                      },
+                      alarmConfiguration={
+                          'enabled': True,
+                          'ignorePollAlarmFailure': False,
+                          'alarms': json.loads(config.target_group_alarms)
+                      },
+                      autoRollbackConfiguration={
+                          'enabled': True,
+                          'events': [
+                              'DEPLOYMENT_FAILURE',
+                              'DEPLOYMENT_STOP_ON_REQUEST',
+                              'DEPLOYMENT_STOP_ON_ALARM'
+                          ]
+                      },
+                      ecsServices=[
+                          {
+                              'serviceName': config.service_name,
+                              'clusterName': config.cluster_name
+                          },
+                      ],
+                      loadBalancerInfo={
+                          'targetGroupPairInfoList': [
+                              {
+                                  'targetGroups': [
+                                      {
+                                          'name': config.blue_target_group
+                                      },
+                                      {
+                                          'name': config.green_target_group
+                                      }
+                                  ],
+                                  'prodTrafficRoute': {
+                                      'listenerArns': [
+                                          config.prod_listener_arn
+                                      ]
+                                  },
+                                  'testTrafficRoute': {
+                                      'listenerArns': [
+                                          config.test_listener_arn
+                                      ]
+                                  }
+                              },
+                          ]
+                      }
+                  )
+                  data = {
+                      "event": "Resource created",
+                      "deploymentGroupName": config.deployment_group_name
+                  }
+                  status = SUCCESS
+              except BaseException as e:
+                  LOGGER.error("Resource create failed for deployment group {}".format(config.deployment_group_name) + str(e))
+              finally:
+                  send(event=event,
+                       context=context,
+                       physical_resource_id='is-set-' + str(uuid.uuid4()),
+                       response_status=status,
+                       response_data=data)
+
+
+          def update_deployment_group(event, context):
+              data = {}
+              status = FAILED
+              config = extract_params(event)
+              try:
+                  current_deployment_group_name = event['OldResourceProperties']['DeploymentGroupName']
+
+                  client.update_deployment_group(
+                      applicationName=config.application_name,
+                      currentDeploymentGroupName=current_deployment_group_name,
+                      newDeploymentGroupName=config.deployment_group_name,
+                      deploymentConfigName=config.deployment_config_name,
+                      serviceRoleArn=config.service_role_arn,
+                      deploymentStyle={
+                          'deploymentType': 'BLUE_GREEN',
+                          'deploymentOption': 'WITH_TRAFFIC_CONTROL'
+                      },
+                      blueGreenDeploymentConfiguration={
+                          'terminateBlueInstancesOnDeploymentSuccess': {
+                              'action': 'TERMINATE',
+                              'terminationWaitTimeInMinutes': int(config.termination_wait_time)
+                          },
+                          'deploymentReadyOption': {
+                              'actionOnTimeout': 'CONTINUE_DEPLOYMENT'
+                          }
+                      },
+                      alarmConfiguration={
+                          'enabled': True,
+                          'ignorePollAlarmFailure': False,
+                          'alarms': json.loads(config.target_group_alarms)
+                      },
+                      autoRollbackConfiguration={
+                          'enabled': True,
+                          'events': [
+                              'DEPLOYMENT_FAILURE',
+                              'DEPLOYMENT_STOP_ON_REQUEST',
+                              'DEPLOYMENT_STOP_ON_ALARM'
+                          ]
+                      },
+                      ecsServices=[
+                          {
+                              'serviceName': config.service_name,
+                              'clusterName': config.cluster_name
+                          },
+                      ],
+                      loadBalancerInfo={
+                          'targetGroupPairInfoList': [
+                              {
+                                  'targetGroups': [
+                                      {
+                                          'name': config.blue_target_group
+                                      },
+                                      {
+                                          'name': config.green_target_group
+                                      }
+                                  ],
+                                  'prodTrafficRoute': {
+                                      'listenerArns': [
+                                          config.prod_listener_arn
+                                      ]
+                                  },
+                                  'testTrafficRoute': {
+                                      'listenerArns': [
+                                          config.test_listener_arn
+                                      ]
+                                  }
+                              },
+                          ]
+                      }
+                  )
+                  data = {
+                      "event": "Resource updated",
+                      "deploymentGroupName": config.deployment_group_name
+                  }
+                  status = SUCCESS
+              except BaseException as e:
+                  LOGGER.error("Resource update failed for deployment group {}".format(config.deployment_group_name) + str(e))
+              finally:
+                  send(event=event,
+                       context=context,
+                       physical_resource_id=event['PhysicalResourceId'],
+                       response_status=status,
+                       response_data=data)
+
+
+          def delete_deployment_group(event, context):
+              data = {}
+              status = FAILED
+              config = extract_params(event)
+
+              if not event['PhysicalResourceId'].startswith('is-set-'):
+                  send(event=event,
+                       context=context,
+                       physical_resource_id=event['PhysicalResourceId'],
+                       response_status=SUCCESS,
+                       response_data=data)
+              else:
+                  try:
+                      client.delete_deployment_group(
+                          applicationName=config.application_name,
+                          deploymentGroupName=config.deployment_group_name
+                      )
+                      status = SUCCESS
+
+                      data = {
+                          "event": "Resource deleted",
+                          "deploymentGroupName": config.deployment_group_name
+                      }
+                  except BaseException as e:
+                      LOGGER.error("Resource delete failed for deployment group {}".format(config.deployment_group_name) + str(e))
+                  finally:
+                      send(event=event,
+                           context=context,
+                           physical_resource_id=event['PhysicalResourceId'],
+                           response_status=status,
+                           response_data=data)
+
+
+          def send(event, context, response_status, response_data, physical_resource_id=None, no_echo=False):
+              response_url = event['ResponseURL']
+
+              LOGGER.info(response_url)
+
+              response_body = {
+                  'Status': response_status,
+                  'Reason': 'See the details in CloudWatch Log Stream: ' + context.log_stream_name,
+                  'PhysicalResourceId': physical_resource_id or context.log_stream_name, 'StackId': event['StackId'],
+                  'RequestId': event['RequestId'], 'LogicalResourceId': event['LogicalResourceId'],
+                  'NoEcho': no_echo,
+                  'Data': response_data
+              }
+
+              json_response_body = json.dumps(response_body)
+
+              LOGGER.info("Response body:\n" + json_response_body)
+
+              headers = {
+                  'content-type': '',
+                  'content-length': str(len(json_response_body))
+              }
+
+              try:
+                  req = urllib.request.Request(response_url,
+                                               data=json_response_body.encode('utf-8'),
+                                               headers=headers,
+                                               method='PUT')
+                  response = urllib.request.urlopen(req)
+                  LOGGER.info("Status code: " + response.reason)
+              except Exception as e:
+                  LOGGER.error("send(..) failed executing requests.put(..): " + str(e))
+      Role: !GetAtt
+        - ECSApplicationcodeDeployCustomLambdaRole
+        - Arn
+      Description: Custom resource to create ECS deployment group
+      Handler: create_deployment_group.handler
+      MemorySize: 128
+      Runtime: python3.8
+      Timeout: 60
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+    # Metadata:
+    #   # 'aws:cdk:path': >-
+    #   #   BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/createDeploymentGroupLambda/Resource
+    #   'aws:asset:path': asset.584722b58c6e8722f217fd69deecd60271051ceb895901571e52ae3092e5e5dd
+    #   'aws:asset:property': Code
+  ECSApplicationcustomEcsDeploymentGroup:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Properties:
+      ServiceToken: !GetAtt
+        - ECSApplicationcreateDeploymentGroupLambda
+        - Arn
+      ApplicationName: !Ref ECSApplication
+      DeploymentGroupName: nginx-sample
+      DeploymentConfigName: !Ref deploymentConfigName
+      ServiceRoleArn: !GetAtt
+        - ECSApplicationCodeDeployServiceRole
+        - Arn
+      BlueTargetGroup: !GetAtt
+        - BlueTaskTargetGroup
+        - TargetGroupName
+      GreenTargetGroup: !GetAtt
+        - GreenTaskTargetGroup
+        - TargetGroupName
+      ProdListenerArn: !Ref ApplicationLoadBalancerProdListener
+      TestListenerArn: !Ref ApplicationLoadBalancerTestListener
+      TargetGroupAlarms: !Join
+        - ''
+        - - '[{"name":"'
+          - !Ref UnhealthyHostAlarm
+          - '"},{"name":"'
+          - !Ref Blue5xxAlarm
+          - '"},{"name":"'
+          - !Ref GreenUnhealthyHostAlarm
+          - '"},{"name":"'
+          - !Ref Green5xxAlarm
+          - '"}]'
+      EcsClusterName: !Ref ecsCluster
+      EcsServiceName: !GetAtt
+        - ECSService
+        - Name
+      TerminationWaitTime: !Ref taskSetTerminationTimeInMinutes
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    # Metadata:
+  #   'aws:cdk:path': >-
+  #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/customEcsDeploymentGroup/Default
+  # DeploymentGroup:
+  #   Type: AWS::CodeDeploy::DeploymentGroup
+  #   Properties:
+  #     AlarmConfiguration:
+  #       enabled: True
+  #       ignorePollAlarmFailure: False
+  #       alarms: !Join
+  #         - ''
+  #         - - '[{"name":"'
+  #           - !Ref UnhealthyHostAlarm
+  #           - '"},{"name":"'
+  #           - !Ref Blue5xxAlarm
+  #           - '"},{"name":"'
+  #           - !Ref GreenUnhealthyHostAlarm
+  #           - '"},{"name":"'
+  #           - !Ref Green5xxAlarm
+  #           - '"}]'
+  #     ApplicationName: !Ref ECSApplication
+  #     AutoRollbackConfiguration:
+  #       Enabled: True
+  #       Events:
+  #         - DEPLOYMENT_FAILURE
+  #         - DEPLOYMENT_STOP_ON_ALARM
+  #         - DEPLOYMENT_STOP_ON_REQUEST
+  #     BlueGreenDeploymentConfiguration:
+  #       TerminateBlueInstancesOnDeploymentSuccess:
+  #         Action: TERMINATE
+  #         TerminationWaitTimeInMinutes: Ref taskSetTerminationTimeInMinutes
+  #     Deployment: CodeDeployDefault.ECSLinear10PercentEvery1Minutes
+  #     DeploymentStyle:
+  #       DeploymentType: BLUE_GREEN
+  #     ECSServices:
+  #       ServiceName: !Ref ECSService
+  #     LoadBalancerInfo:
+  #       TargetGroups:
+  #         Name: !GetAtt
+  #           - BlueTaskTargetGroup
+  #           - TargetGroupName
+  #         Name: !GetAtt
+  #           - GreenTaskTargetGroup
+  #           - TargetGroupName
+  #       ProdTrafficRoute:
+  #         ListenerArns: !Ref ApplicationLoadBalancerProdListener
+  #       TestTrafficRoute:
+  #         ListenerArns: !Ref ApplicationLoadBalancerTestListener
+  #     OutdatedInstancesStrategy: String
+  #     ServiceRoleArn: !GetAtt
+  #       - ECSApplicationCodeDeployServiceRole
+  #       - Arn
+  #
+  #
+
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /ecs/nginx-sample
+      RetentionInDays: 731
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+
+  ECSBlueGreenFullPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      RoleArn: !GetAtt
+        - CodePipelineRole
+        - Arn
+      Stages:
+        - Actions:
+            - ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: '1'
+              Configuration:
+                RepositoryName: nginx-sample
+                BranchName: main
+                PollForSourceChanges: false
+              Name: Source
+              OutputArtifacts:
+                - Name: sourceArtifact
+              RoleArn: !GetAtt
+                - >-
+                  ECSBlueGreenSourceCodePipelineActionRole
+                - Arn
+              RunOrder: 1
+          Name: Source
+        - Actions:
+            - ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: EcsBlueGreenBuildImagecodeB
+              InputArtifacts:
+                - Name: sourceArtifact
+              Name: Build
+              OutputArtifacts:
+                - Name: buildArtifact
+              RoleArn: !GetAtt
+                - >-
+                  ECSBlueGreenBuildCodePipelineActionRole
+                - Arn
+              RunOrder: 1
+          Name: Build
+        - Actions:
+            - ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: '1'
+              Configuration:
+                ApplicationName: !Ref ECSApplication
+                DeploymentGroupName: nginx-sample
+                TaskDefinitionTemplateArtifact: buildArtifact
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: buildArtifact
+                AppSpecTemplatePath: appspec.yaml
+              InputArtifacts:
+                - Name: buildArtifact
+              Name: Deploy
+              RoleArn: !GetAtt
+                - >-
+                  ECSBlueGreenDeployCodePipelineActionRole
+                - Arn
+              RunOrder: 1
+          Name: Deploy
+      ArtifactStore:
+        Location: !Ref ArtifactsBucket
+        Type: S3
+    DependsOn:
+      - codePipelineRoleDefaultPolicy
+      - CodePipelineRole
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Resource
+  ECSBlueGreenSourceCodePipelineActionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+        Version: 2012-10-17
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Source/Source/CodePipelineActionRole/Resource
+  ECSBlueGreenSourceCodePipelineActionRoleDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetObject*'
+              - 's3:GetBucket*'
+              - 's3:List*'
+              - 's3:DeleteObject*'
+              - 's3:PutObject*'
+              - 's3:Abort*'
+            Effect: Allow
+            Resource:
+              - !GetAtt
+                - ArtifactsBucket
+                - Arn
+              - !Join
+                - ''
+                - - !GetAtt
+                    - ArtifactsBucket
+                    - Arn
+                  - /*
+          - Action:
+              - 'codecommit:GetBranch'
+              - 'codecommit:GetCommit'
+              - 'codecommit:UploadArchive'
+              - 'codecommit:GetUploadArchiveStatus'
+              - 'codecommit:CancelUploadArchive'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codecommit:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':nginx-sample'
+        Version: 2012-10-17
+      PolicyName: >-
+        ECSBlueGreenSourceCodePipelineActionRoleDefaultPolicy
+      Roles:
+        - !Ref ECSBlueGreenSourceCodePipelineActionRole
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Source/Source/CodePipelineActionRole/DefaultPolicy/Resource
+  ECSBlueGreenEventsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+        Version: 2012-10-17
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/EventsRole/Resource
+  ecsBlueGreenEventsRoleDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: 'codepipeline:StartPipelineExecution'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codepipeline:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':'
+                - !Ref ECSBlueGreenFullPipeline
+        Version: 2012-10-17
+      PolicyName: ecsBlueGreenEventsRoleDefaultPolicy
+      Roles:
+        - !Ref ECSBlueGreenEventsRole
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/EventsRole/DefaultPolicy/Resource
+  ECSBlueGreenBuildCodePipelineActionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+        Version: 2012-10-17
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Build/Build/CodePipelineActionRole/Resource
+  ECSBlueGreenBuildCodePipelineActionRoleDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'codebuild:BatchGetBuilds'
+              - 'codebuild:StartBuild'
+              - 'codebuild:StopBuild'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codebuild:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':project/EcsBlueGreenBuildImagecodeB-zR8yKPQ0I4kZ'
+        Version: 2012-10-17
+      PolicyName: >-
+        ECSBlueGreenBuildCodePipelineActionRoleDefaultPolicy
+      Roles:
+        - !Ref ECSBlueGreenBuildCodePipelineActionRole
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Build/Build/CodePipelineActionRole/DefaultPolicy/Resource
+  ECSBlueGreenDeployCodePipelineActionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+        Version: 2012-10-17
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsBlueGreen/Deploy/Deploy/CodePipelineActionRole/Resource
+  ECSBlueGreenDeployCodePipelineActionRoleDefaultPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'codedeploy:GetApplication'
+              - 'codedeploy:GetApplicationRevision'
+              - 'codedeploy:RegisterApplicationRevision'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codedeploy:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':application:'
+                - !Ref ECSApplication
+          - Action:
+              - 'codedeploy:CreateDeployment'
+              - 'codedeploy:GetDeployment'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codedeploy:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':deploymentgroup:'
+                - !Ref ECSApplication
+                - /*
+          - Action: 'codedeploy:GetDeploymentConfig'
+            Effect: Allow
+            Resource: !Join
+              - ''
+              - - 'arn:'
+                - !Ref 'AWS::Partition'
+                - ':codedeploy:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':deploymentconfig:'
+                - !Ref deploymentConfigName
+          - Action: 'ecs:RegisterTaskDefinition'
+            Effect: Allow
+            Resource: '*'
+          - Action: 'iam:PassRole'
+            Condition:
+              StringEqualsIfExists:
+                'iam:PassedToService':
+                  - ecs-tasks.amazonaws.com
+            Effect: Allow
+            Resource: '*'
+          - Action:
+              - 's3:GetObject*'
+              - 's3:GetBucket*'
+              - 's3:List*'
+            Effect: Allow
+            Resource:
+              - !GetAtt
+                - ArtifactsBucket
+                - Arn
+              - !Join
+                - ''
+                - - !GetAtt
+                    - ArtifactsBucket
+                    - Arn
+                  - /*
+        Version: 2012-10-17
+      PolicyName: >-
+        ECSBlueGreenDeployCodePipelineActionRoleDefaultPolicy
+      Roles:
+        - !Ref ECSBlueGreenDeployCodePipelineActionRole
+    DependsOn:
+      - >-
+        ECSApplicationcodeDeployCustomLambdaDefaultPolicy
+      - ECSApplicationcodeDeployCustomLambdaRole
+      - ECSApplicationcreateDeploymentGroupLambda
+      - ECSApplicationcustomEcsDeploymentGroup
+      - ECSApplication
+      - ECSApplicationCodeDeployServiceRole
+
+Outputs:
+  EcsBlueGreenPipelineecsBlueGreenLBDns3CF68174:
+    Description: Load balancer DNS
+    Value: !GetAtt
+      - ApplicationLoadBalancer
+      - DNSName
+    Export:
+      Name: ecsBlueGreenLBDns
