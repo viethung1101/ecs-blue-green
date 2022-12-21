@@ -1,0 +1,285 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC for ecs test
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: BlueGreenPipelineStack/EcsBlueGreenCluster/VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/Resource
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.0.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: true
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Public
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Public
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/Subnet
+  PublicSubnet1RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/RouteTable
+  PublicSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicSubnet1RouteTable
+      SubnetId: !Ref PublicSubnet1
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/RouteTableAssociation
+  PublicSubnet1DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCIGW
+    DependsOn:
+      - VPCGWD
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/DefaultRoute
+  PublicSubnet1EIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/EIP
+  PublicSubnet1NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !GetAtt
+        - PublicSubnet1EIP
+        - AllocationId
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet1/NATGateway
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.64.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      MapPublicIpOnLaunch: true
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Public
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Public
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/Subnet
+  PublicSubnet2RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/RouteTable
+  PublicSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicSubnet2RouteTable
+      SubnetId: !Ref PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/RouteTableAssociation
+  PublicSubnet2DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCIGW
+    DependsOn:
+      - VPCGWD
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/DefaultRoute
+  PublicSubnet2EIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/EIP
+  PublicSubnet2NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      AllocationId: !GetAtt
+        - PublicSubnet2EIP
+        - AllocationId
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PublicSubnet2/NATGateway
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.128.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Private
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Private
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/Subnet
+  PrivateSubnet1RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/RouteTable
+  PrivateSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1RouteTable
+      SubnetId: !Ref PrivateSubnet1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/RouteTableAssociation
+  PrivateSubnet1DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet1NATGateway
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet1/DefaultRoute
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.192.0/18
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      MapPublicIpOnLaunch: false
+      Tags:
+        # - Key: 'aws-cdk:subnet-name'
+        #   Value: Private
+        # - Key: 'aws-cdk:subnet-type'
+        #   Value: Private
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/Subnet
+  PrivateSubnet2RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: >-
+            BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/RouteTable
+  PrivateSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2RouteTable
+      SubnetId: !Ref PrivateSubnet2
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/RouteTableAssociation
+  PrivateSubnet2DefaultRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateSubnet2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet2NATGateway
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/PrivateSubnet2/DefaultRoute
+  VPCIGW:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/IGW
+  VPCGWD:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref VPCIGW
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsClusterVPC/VPCGW
+  ecsCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenCluster/ecsCluster/Resource

@@ -1,0 +1,395 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: necessary roles and policies
+Parameters:
+  VPC:
+    Type: 'AWS::EC2::VPC::Id'
+    Default: vpc-0457a2a48dbcfd525
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-0591b47b4fa5e1473
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-0cbee42eee734cc4e
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-07293c1a7da719c13
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-0716b12d8d97c1ebe
+  # PublicSubnet1DefaultRoute:
+  #   Type: 'AWS::EC2::Route'
+  #   Default: rtb-00c214f619d6b115c
+  # PublicSubnet2DefaultRoute:
+  #   Type: 'AWS::EC2::Route'
+  #   Default: rtb-0dca7492654449889
+
+  # ExampleSecurityGroup:
+  #   Type: 'AWS::EC2::SecurityGroup::Id'
+    # Default: sg-0238371c5a3411b00
+Resources:
+  ECSserviceTaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      ContainerDefinitions:
+        - Essential: true
+          # Image: !Join
+          #   - ''
+          #   - - !Ref 'AWS::AccountId'
+          #     - .dkr.ecr.
+          #     - !Ref 'AWS::Region'
+          #     - .
+          #     - !Ref 'AWS::URLSuffix'
+          #     - >-
+          #       /bluegreencontainerimagestack-ecsbluegreenbuildimageecrrepo49cbe659-u1veqblhaaiv:latest
+          Image: 'nginxdemos/hello:latest'
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: app
+              awslogs-region: !Ref 'AWS::Region'
+          Name: ProxyContainer
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+      Cpu: '256'
+      ExecutionRoleArn: >-
+        arn:aws:iam::275686840643:role/ecsTaskExecutionRole
+      Family: nginx-sample
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: >-
+        arn:aws:iam::275686840643:role/ecsTaskExecutionRole
+
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /ecs/nginx-sample
+      RetentionInDays: 731
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+
+  ApplicationLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: 'false'
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt
+          - ApplicationLoadBalancerSG
+          - GroupId
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Type: application
+    # DependsOn:
+    #   - PublicSubnet1DefaultRoute
+    #   - PublicSubnet2DefaultRoute
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/Resource
+  ApplicationLoadBalancerSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: >-
+        Automatically created Security Group for ELB
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealb8F91BEF4
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow from anyone on port 80
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          Description: Allow from anyone on port 8080
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/Resource
+  ApplicationLoadBalancerSGEgressPort80:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      IpProtocol: tcp
+      Description: >-
+        to
+        BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:80
+      DestinationSecurityGroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      FromPort: 80
+      ToPort: 80
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/to
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:80
+  ApplicationLoadBalancerSGEgressPort8080:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      IpProtocol: tcp
+      Description: >-
+        to
+        BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:8080
+      DestinationSecurityGroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      FromPort: 8080
+      ToPort: 8080
+    # Metadata:
+      # 'aws:cdk:path': >-
+      #   BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/SecurityGroup/to
+      #   BlueGreenPipelineStackEcsBlueGreenPipelineserviceecsServiceSecurityGroupCA4D9BF7:8080
+  ApplicationLoadBalancerProdListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref BlueTaskTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/albProdListener/Resource
+  ApplicationLoadBalancerTestListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref GreenTaskTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 8080
+      Protocol: HTTP
+    Metadata:
+      'aws:cdk:path': >-
+        BlueGreenPipelineStack/EcsBlueGreenPipeline/service/alb/albTestListener/Resource
+  BlueTaskTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 30
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/blueGroup/Resource
+  GreenTaskTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 30
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/greenGroup/Resource
+  ecsCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+  ECSService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !Ref ecsCluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      DeploymentController:
+        Type: CODE_DEPLOY
+      DesiredCount: 3
+      EnableECSManagedTags: false
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: ProxyContainer
+          ContainerPort: 80
+          TargetGroupArn: !Ref BlueTaskTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !GetAtt
+              - ECSServiceSecurityGroup
+              - GroupId
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+      ServiceName: nginx-sample
+      TaskDefinition: !Ref ECSserviceTaskDefinition
+    DependsOn:
+      - ApplicationLoadBalancerProdListener
+    # Metadata:
+    #   'aws:cdk:path': BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/Service
+  ECSServiceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: >-
+        BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      VpcId: !Ref VPC
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/Resource
+  ECSServiceSecurityGroupAllowTrafficFromALB:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      Description: >-
+        from
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:80
+      FromPort: 80
+      GroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      SourceSecurityGroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      ToPort: 80
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/from
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:80
+  ECSServiceSecurityGroupAllowTrafficFromALBport8080:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      Description: >-
+        from
+        BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:8080
+      FromPort: 8080
+      GroupId: !GetAtt
+        - ECSServiceSecurityGroup
+        - GroupId
+      SourceSecurityGroupId: !GetAtt
+        - ApplicationLoadBalancerSG
+        - GroupId
+      ToPort: 8080
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/service/ecsService/SecurityGroup/from
+    #     BlueGreenPipelineStackEcsBlueGreenPipelineservicealbSecurityGroup371909AB:8080
+  UnhealthyHostAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      AlarmDescription: CloudWatch Alarm for the UnhealthyHost errors of blue target group
+      AlarmName: nginx-sampleblueUnhealthyHostAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - BlueTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: UnHealthyHostCount
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Average
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-sampleblueUnhealthyHostAlarm/Resource
+  Blue5xxAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      AlarmDescription: CloudWatch Alarm for the 5xx errors of blue target group
+      AlarmName: nginx-sampleblue5xxAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - BlueTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: HTTPCode_Target_5XX_Count
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-sampleblue5xxAlarm/Resource
+  GreenUnhealthyHostAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      AlarmDescription: CloudWatch Alarm for the UnhealthyHost errors of green target group
+      AlarmName: nginx-samplegreenUnhealthyHostAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - GreenTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: UnHealthyHostCount
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Average
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-samplegreenUnhealthyHostAlarm/Resource
+  Green5xxAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      AlarmDescription: CloudWatch Alarm for the 5xx errors of green target group
+      AlarmName: nginx-samplegreen5xxAlarm
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ApplicationLoadBalancer
+            - LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt
+            - GreenTaskTargetGroup
+            - TargetGroupFullName
+      MetricName: HTTPCode_Target_5XX_Count
+      Namespace: AWS/ApplicationELB
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/alarms/nginx-samplegreen5xxAlarm/Resource
+
+    # Metadata:
+    #   'aws:cdk:path': >-
+    #     BlueGreenPipelineStack/EcsBlueGreenPipeline/ecsApplication/ecsApplication/Resource
